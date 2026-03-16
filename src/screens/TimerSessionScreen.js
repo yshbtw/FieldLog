@@ -30,6 +30,10 @@ export default function TimerSessionScreen({ route, navigation }) {
   const [hourlyRate, setHourlyRate] = useState('');
   const [computedDuration, setComputedDuration] = useState(0);
 
+  // Payment Status State
+  const [paidStatus, setPaidStatus] = useState('unpaid');
+  const [paidAmount, setPaidAmount] = useState('');
+
   // Reanimated Shared Values
   const timerScale = useSharedValue(1);
   const startScale = useSharedValue(1);
@@ -255,6 +259,28 @@ export default function TimerSessionScreen({ route, navigation }) {
       }
     }
 
+    const extraPaidAmount = parseFloat(paidAmount) || 0;
+
+    if (paidStatus === 'partial' && extraPaidAmount > earnings) {
+      alert(`Overpayment Alert: Partial amount (${formatCurrency(extraPaidAmount)}) cannot be greater than total earnings (${formatCurrency(earnings)}).`);
+      return;
+    }
+
+    let finalPaidStatus = paidStatus;
+    let finalPaidAmount = 0;
+
+    if (paidStatus === 'paid') {
+      finalPaidAmount = earnings;
+    } else if (paidStatus === 'partial') {
+      if (Math.abs(extraPaidAmount - earnings) < 0.01 || extraPaidAmount > earnings) {
+        // Automatically mark as paid if equal
+        finalPaidStatus = 'paid';
+        finalPaidAmount = earnings;
+      } else {
+        finalPaidAmount = extraPaidAmount;
+      }
+    }
+
     const entry = {
       id: Date.now().toString(),
       contactName: contactName,
@@ -267,6 +293,8 @@ export default function TimerSessionScreen({ route, navigation }) {
       audioUri: finalAudioUri,
       hourlyRate: rateVal,
       totalEarnings: earnings,
+      paidStatus: finalPaidStatus,
+      paidAmount: finalPaidAmount,
     };
     
     await addSession(entry);
@@ -278,6 +306,8 @@ export default function TimerSessionScreen({ route, navigation }) {
     setAudioUri(null);
     setDescription('');
     setHourlyRate('');
+    setPaidStatus('unpaid');
+    setPaidAmount('');
 
     setTimerState({
       status: 'idle',
@@ -441,6 +471,51 @@ export default function TimerSessionScreen({ route, navigation }) {
                 <Text style={styles.earningsPreviewValue}>{formatCurrency(previewEarnings)}</Text>
               </View>
 
+              {/* Payment Status */}
+              <Text style={styles.fieldLabel}>Payment Status</Text>
+              <View style={styles.paymentToggles}>
+                {['unpaid', 'partial', 'paid'].map(status => {
+                  const isActive = paidStatus === status;
+                  return (
+                    <TouchableOpacity
+                      key={status}
+                      style={[
+                        styles.paymentToggleBtn,
+                        isActive && (
+                          status === 'paid' ? styles.paymentTogglePaid :
+                          status === 'partial' ? styles.paymentTogglePartial :
+                          styles.paymentToggleUnpaid
+                        )
+                      ]}
+                      onPress={() => setPaidStatus(status)}
+                    >
+                      <Text style={[
+                        styles.paymentToggleText,
+                        isActive && styles.paymentToggleTextActive
+                      ]}>
+                        {status === 'paid' ? '✅ Paid' : status === 'partial' ? '🟡 Partial' : '🔴 Unpaid'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {paidStatus === 'partial' && (
+                <View style={styles.partialAmountRow}>
+                  <Text style={styles.partialAmountLabel}>Amount Received (₹)</Text>
+                  <TextInput
+                    style={styles.partialAmountInput}
+                    value={paidAmount}
+                    onChangeText={setPaidAmount}
+                    keyboardType="decimal-pad"
+                    placeholder="0"
+                    placeholderTextColor="#9CA3AF"
+                  />
+                  {parseFloat(paidAmount) > previewEarnings && (
+                    <Text style={styles.errorText}>Please enter correct amount or mark as Paid</Text>
+                  )}
+                </View>
+              )}
+
               <TouchableOpacity style={styles.saveActionBtn} onPress={handleSaveSession}>
                 <LinearGradient colors={['#38BDF8', '#0284C7']} style={StyleSheet.absoluteFillObject} borderRadius={16} />
                 <Text style={styles.saveActionBtnText}>Save Session</Text>
@@ -509,4 +584,17 @@ const styles = StyleSheet.create({
 
   saveActionBtn: { height: 60, borderRadius: 30, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', shadowColor: '#0F172A', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 6 },
   saveActionBtnText: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
+
+  // Payment Toggles
+  paymentToggles: { flexDirection: 'row', gap: 10, marginBottom: 24 },
+  paymentToggleBtn: { flex: 1, paddingVertical: 14, borderRadius: 16, backgroundColor: '#F3F4F6', alignItems: 'center' },
+  paymentTogglePaid: { backgroundColor: '#DCFCE7' },
+  paymentTogglePartial: { backgroundColor: '#FEF9C3' },
+  paymentToggleUnpaid: { backgroundColor: '#FEE2E2' },
+  paymentToggleText: { fontSize: 13, fontWeight: '700', color: '#6B7280' },
+  paymentToggleTextActive: { color: '#111827' },
+  partialAmountRow: { marginBottom: 24 },
+  partialAmountLabel: { fontSize: 14, color: '#6B7280', fontWeight: '600', marginBottom: 8 },
+  partialAmountInput: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 14, fontSize: 18, fontWeight: '700', color: '#111827', borderWidth: 1, borderColor: '#E5E7EB' },
+  errorText: { color: '#EF4444', fontSize: 12, marginTop: 4, fontWeight: '600' },
 });

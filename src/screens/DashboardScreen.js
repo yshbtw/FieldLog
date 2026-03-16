@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Modal, ScrollView, Platform, TextInput, KeyboardAvoidingView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -10,6 +11,7 @@ import { formatDuration, formatDate, formatTime, formatCurrency } from '../utils
 import { loadDirectoryUri, saveDirectoryUri } from '../services/storageService';
 
 export default function DashboardScreen() {
+  const insets = useSafeAreaInsets();
   const { sessions, deleteSession, updateSession } = useWorkSession();
   const [selectedSession, setSelectedSession] = useState(null);
 
@@ -17,6 +19,8 @@ export default function DashboardScreen() {
   const [isEditing, setIsEditing] = useState(false);
   const [editDescription, setEditDescription] = useState('');
   const [editRate, setEditRate] = useState('');
+  const [editPaidStatus, setEditPaidStatus] = useState('unpaid');
+  const [editPaidAmount, setEditPaidAmount] = useState('');
 
   // Audio Playback State
   const [sound, setSound] = useState(null);
@@ -80,6 +84,8 @@ export default function DashboardScreen() {
   const startEditing = () => {
     setEditDescription(selectedSession.description || '');
     setEditRate(String(selectedSession.hourlyRate || 0));
+    setEditPaidStatus(selectedSession.paidStatus || 'unpaid');
+    setEditPaidAmount(String(selectedSession.paidAmount || ''));
     setEditAudioUri(selectedSession.audioUri || null);
     // Clean up any existing playback
     if (sound) { sound.unloadAsync(); setSound(null); setIsPlaying(false); }
@@ -185,11 +191,39 @@ export default function DashboardScreen() {
       }
     }
 
+    const extraPaidAmount = parseFloat(editPaidAmount) || 0;
+    
+    if (editPaidStatus === 'partial' && extraPaidAmount > newEarnings) {
+      Alert.alert(
+        "Overpayment Alert",
+        `Partial amount (${formatCurrency(extraPaidAmount)}) cannot be greater than total earnings (${formatCurrency(newEarnings)}).`,
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    let finalPaidStatus = editPaidStatus;
+    let finalPaidAmount = 0;
+
+    if (editPaidStatus === 'paid') {
+      finalPaidAmount = newEarnings;
+    } else if (editPaidStatus === 'partial') {
+      if (Math.abs(extraPaidAmount - newEarnings) < 0.01 || extraPaidAmount > newEarnings) {
+        // Automatically mark as paid if equal (or slightly above due to rounding)
+        finalPaidStatus = 'paid';
+        finalPaidAmount = newEarnings;
+      } else {
+        finalPaidAmount = extraPaidAmount;
+      }
+    }
+
     await updateSession(selectedSession.id, {
       description: editDescription,
       hourlyRate: newRate,
       totalEarnings: newEarnings,
       audioUri: finalAudioUri,
+      paidStatus: finalPaidStatus,
+      paidAmount: finalPaidAmount,
     });
 
     setSelectedSession(prev => ({
@@ -198,6 +232,8 @@ export default function DashboardScreen() {
       hourlyRate: newRate,
       totalEarnings: newEarnings,
       audioUri: finalAudioUri,
+      paidStatus: finalPaidStatus,
+      paidAmount: finalPaidAmount,
     }));
     setIsEditing(false);
   };
@@ -253,8 +289,27 @@ export default function DashboardScreen() {
           <Text style={styles.sessionDuration}>{formatDuration(item.duration)}</Text>
         </View>
         
-        <View style={styles.earningsBadge}>
-          <Text style={styles.earningsBadgeText}>{formatCurrency(item.totalEarnings)}</Text>
+        <View style={styles.badgeRow}>
+          <View style={styles.earningsBadge}>
+            <Text style={styles.earningsBadgeText}>{formatCurrency(item.totalEarnings)}</Text>
+          </View>
+          <View style={[
+            styles.paymentBadge,
+            item.paidStatus === 'paid' ? styles.paymentBadgePaid :
+            item.paidStatus === 'partial' ? styles.paymentBadgePartial :
+            styles.paymentBadgeUnpaid
+          ]}>
+            <Text style={[
+              styles.paymentBadgeText,
+              item.paidStatus === 'paid' ? styles.paymentBadgeTextPaid :
+              item.paidStatus === 'partial' ? styles.paymentBadgeTextPartial :
+              styles.paymentBadgeTextUnpaid
+            ]}>
+              {item.paidStatus === 'paid' ? '✅ Paid' :
+               item.paidStatus === 'partial' ? `🟡 Partial (${formatCurrency(item.paidAmount || 0)})` :
+               '🔴 Unpaid'}
+            </Text>
+          </View>
         </View>
         
         {item.description || item.audioUri ? (
@@ -282,8 +337,8 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Recent Dash</Text>
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <Text style={styles.title}>Dashboard</Text>
         <Text style={styles.subtitle}>
           {sessions.length} session{sessions.length !== 1 ? 's' : ''} total
         </Text>
@@ -342,6 +397,69 @@ export default function DashboardScreen() {
                     <Text style={[styles.statValue, {color: '#10B981'}]}>{formatCurrency(selectedSession.totalEarnings)}</Text>
                   </View>
                 </View>
+
+                {/* Payment Status — editable or read-only */}
+                {isEditing ? (
+                  <View style={{ marginTop: 24 }}>
+                    <Text style={styles.editFieldLabel}>Payment Status</Text>
+                    <View style={styles.paymentToggles}>
+                      {['unpaid', 'partial', 'paid'].map(status => {
+                        const isActive = editPaidStatus === status;
+                        return (
+                          <TouchableOpacity
+                            key={status}
+                            style={[
+                              styles.paymentToggleBtn,
+                              isActive && (
+                                status === 'paid' ? styles.paymentTogglePaid :
+                                status === 'partial' ? styles.paymentTogglePartial :
+                                status === 'unpaid' ? styles.paymentToggleUnpaid : {}
+                              )
+                            ]}
+                            onPress={() => setEditPaidStatus(status)}
+                          >
+                            <Text style={[
+                              styles.paymentToggleText,
+                              isActive && styles.paymentToggleTextActive
+                            ]}>
+                              {status === 'paid' ? '✅ Paid' : status === 'partial' ? '🟡 Partial' : '🔴 Unpaid'}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    {editPaidStatus === 'partial' && (
+                      <View style={styles.partialAmountRow}>
+                        <Text style={styles.editFieldLabel}>Amount Received (₹)</Text>
+                        <TextInput
+                          style={styles.editInput}
+                          value={editPaidAmount}
+                          onChangeText={setEditPaidAmount}
+                          keyboardType="decimal-pad"
+                          placeholder="0"
+                          placeholderTextColor="#9CA3AF"
+                        />
+                        {parseFloat(editPaidAmount) > ((parseFloat(editRate) || 0) * (selectedSession.duration / 3600)) && (
+                          <Text style={styles.errorText}>Please enter correct amount or mark as Paid</Text>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Payment</Text>
+                    <Text style={[
+                      styles.infoValue,
+                      (selectedSession.paidStatus || 'unpaid') === 'paid' ? { color: '#16A34A' } :
+                      (selectedSession.paidStatus || 'unpaid') === 'partial' ? { color: '#CA8A04' } :
+                      { color: '#EF4444' }
+                    ]}>
+                      {(selectedSession.paidStatus || 'unpaid') === 'paid' ? '✅ Paid' :
+                       (selectedSession.paidStatus || 'unpaid') === 'partial' ? `🟡 Partial (${formatCurrency(selectedSession.paidAmount || 0)})` :
+                       '🔴 Unpaid'}
+                    </Text>
+                  </View>
+                )}
 
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>Time Span</Text>
@@ -477,9 +595,9 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F7' },
-  header: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 24 },
+  header: { paddingHorizontal: 24, paddingBottom: 8 },
   title: { fontSize: 32, fontWeight: '800', color: '#111827', marginBottom: 4 },
-  subtitle: { fontSize: 16, color: '#6B7280', fontWeight: '500' },
+  subtitle: { fontSize: 15, color: '#6B7280', fontWeight: '500' },
   listContent: { paddingHorizontal: 24, paddingBottom: 100 }, // Extra padding for floating tab bar
   
   sessionCard: { 
@@ -499,8 +617,17 @@ const styles = StyleSheet.create({
   contactName: { fontSize: 18, fontWeight: '700', color: '#111827' },
   sessionDuration: { fontSize: 18, fontWeight: '700', color: '#2563EB', fontVariant: ['tabular-nums'] },
   
-  earningsBadge: { alignSelf: 'flex-start', backgroundColor: '#F0FDF4', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, marginBottom: 16 },
+  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' },
+  earningsBadge: { alignSelf: 'flex-start', backgroundColor: '#F0FDF4', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
   earningsBadgeText: { color: '#16A34A', fontWeight: '800', fontSize: 14 },
+  paymentBadge: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
+  paymentBadgePaid: { backgroundColor: '#DCFCE7' },
+  paymentBadgePartial: { backgroundColor: '#FEF9C3' },
+  paymentBadgeUnpaid: { backgroundColor: '#FEE2E2' },
+  paymentBadgeText: { fontWeight: '700', fontSize: 12 },
+  paymentBadgeTextPaid: { color: '#16A34A' },
+  paymentBadgeTextPartial: { color: '#CA8A04' },
+  paymentBadgeTextUnpaid: { color: '#EF4444' },
   descriptionRow: { marginBottom: 16 },
   sessionDescription: { fontSize: 15, color: '#4B5563', lineHeight: 22, marginBottom: 8 },
   
@@ -586,4 +713,19 @@ const styles = StyleSheet.create({
   audioEditReplaceBtnText: { color: '#D97706', fontWeight: '800', fontSize: 15 },
   audioEditDeleteBtn: { flex: 1, backgroundColor: '#FEF2F2', paddingVertical: 14, borderRadius: 14, alignItems: 'center' },
   audioEditDeleteBtnText: { color: '#DC2626', fontWeight: '800', fontSize: 18 },
+
+  // Payment Status Styles
+  paymentSection: { marginTop: 24, backgroundColor: '#FFFFFF', borderRadius: 24, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 12, elevation: 3 },
+  paymentSectionTitle: { fontSize: 16, color: '#6B7280', fontWeight: '600', marginBottom: 16 },
+  paymentToggles: { flexDirection: 'row', gap: 10 },
+  paymentToggleBtn: { flex: 1, paddingVertical: 14, borderRadius: 16, backgroundColor: '#F3F4F6', alignItems: 'center' },
+  paymentTogglePaid: { backgroundColor: '#DCFCE7' },
+  paymentTogglePartial: { backgroundColor: '#FEF9C3' },
+  paymentToggleUnpaid: { backgroundColor: '#FEE2E2' },
+  paymentToggleText: { fontSize: 13, fontWeight: '700', color: '#6B7280' },
+  paymentToggleTextActive: { color: '#111827' },
+  partialInfo: { marginTop: 12, fontSize: 14, color: '#CA8A04', fontWeight: '600', textAlign: 'center' },
+  paymentToggles: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  partialAmountRow: { marginTop: 12, marginBottom: 12 },
+  errorText: { color: '#EF4444', fontSize: 12, marginTop: 4, fontWeight: '600' },
 });

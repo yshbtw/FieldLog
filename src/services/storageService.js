@@ -84,7 +84,11 @@ export async function loadRates() {
  */
 export async function saveDirectoryUri(uri) {
   try {
-    await AsyncStorage.setItem(STORAGE_KEYS.SAF_DIR, uri);
+    if (!uri) {
+      await AsyncStorage.removeItem(STORAGE_KEYS.SAF_DIR);
+    } else {
+      await AsyncStorage.setItem(STORAGE_KEYS.SAF_DIR, uri);
+    }
   } catch (error) {
     console.error('Error saving directory URI:', error);
   }

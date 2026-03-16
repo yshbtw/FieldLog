@@ -9,12 +9,14 @@ import {
   ActivityIndicator,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Contacts from 'expo-contacts';
 
 export default function TimerScreen({ navigation }) {
   const [contacts, setContacts] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const insets = useSafeAreaInsets();
   const [permissionDenied, setPermissionDenied] = useState(false);
 
   useEffect(() => {
@@ -114,7 +116,7 @@ export default function TimerScreen({ navigation }) {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <Text style={styles.headerTitle}>Contacts</Text>
         <Text style={styles.headerSubtitle}>Select a contact to start tracking</Text>
       </View>
@@ -186,7 +188,6 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 24,
-    paddingTop: 16,
     paddingBottom: 8,
   },
   headerTitle: {
@@ -284,8 +285,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   listContent: {
-    paddingHorizontal: 24,
-    paddingBottom: 100, // accommodate bottom tab bar
+    padding: 24,
+    paddingTop: 8,
+    paddingBottom: 110, // Important: Space for the new 70px tall floating tab bar
   },
   contactItem: {
     flexDirection: 'row',
