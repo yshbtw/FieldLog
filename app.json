@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "WorkTime Tracker",
+    "slug": "worktime-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F172A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.worktime.tracker",
+      "infoPlist": {
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true,
+        "NSContactsUsageDescription": "WorkTime Tracker needs access to your contacts to track time spent working for each contact."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0F172A",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.worktime.tracker",
+      "permissions": [
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-contacts",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow WorkTime Tracker to access your microphone for voice notes."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "834340b3-c29d-41a7-b83f-6dab41e0b956"
+      }
+    }
+  }
+}
