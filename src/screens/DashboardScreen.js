@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Audio } from 'expo-av';
+import { useAudioPlayer, useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync } from 'expo-audio';
 import * as FileSystem from 'expo-file-system';
 import { useWorkSession } from '../context/WorkSessionContext';
 import { formatDuration, formatDate, formatTime, formatCurrency } from '../utils/formatTime';
@@ -23,31 +23,28 @@ export default function DashboardScreen() {
   const [editPaidAmount, setEditPaidAmount] = useState('');
 
   // Audio Playback State
-  const [sound, setSound] = useState(null);
+  const audioPlayer = useAudioPlayer(selectedSession?.audioUri || null);
   const [isPlaying, setIsPlaying] = useState(false);
 
   // Edit Mode Audio State
-  const [editRecording, setEditRecording] = useState(null);
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [editAudioUri, setEditAudioUri] = useState(null);
-  const [permissionResponse, requestPermission] = Audio.usePermissions();
 
   // Clean up sound on unmount or when modal closes
   useEffect(() => {
-    if (!selectedSession && sound) {
-      sound.unloadAsync();
-      setSound(null);
+    if (!selectedSession && audioPlayer) {
+      audioPlayer.remove();
       setIsPlaying(false);
     }
     if (!selectedSession) {
       setIsEditing(false);
-      setEditRecording(null);
       setEditAudioUri(null);
     }
   }, [selectedSession]);
 
   useEffect(() => {
-    return sound ? () => { sound.unloadAsync(); } : undefined;
-  }, [sound]);
+    return audioPlayer ? () => { audioPlayer.remove(); } : undefined;
+  }, [audioPlayer]);
 
   // Sort sessions recent first
   const recentSessions = [...sessions].sort(
@@ -88,13 +85,13 @@ export default function DashboardScreen() {
     setEditPaidAmount(String(selectedSession.paidAmount || ''));
     setEditAudioUri(selectedSession.audioUri || null);
     // Clean up any existing playback
-    if (sound) { sound.unloadAsync(); setSound(null); setIsPlaying(false); }
+    if (audioPlayer) { audioPlayer.pause(); setIsPlaying(false); }
     setIsEditing(true);
   };
 
   const cancelEditing = () => {
-    if (sound) { sound.unloadAsync(); setSound(null); setIsPlaying(false); }
-    setEditRecording(null);
+    if (audioPlayer) { audioPlayer.pause(); setIsPlaying(false); }
+    if (audioRecorder.isRecording) { audioRecorder.stopRecording(); }
     setEditAudioUri(selectedSession.audioUri || null);
     setIsEditing(false);
   };
@@ -102,11 +99,14 @@ export default function DashboardScreen() {
   // --- EDIT MODE AUDIO FUNCTIONS ---
   async function startEditRecording() {
     try {
-      if (permissionResponse?.status !== 'granted') await requestPermission();
-      if (sound) { await sound.unloadAsync(); setSound(null); setIsPlaying(false); }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      setEditRecording(recording);
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        alert('Microphone permission is required to record voice notes.');
+        return;
+      }
+      if (audioPlayer) { audioPlayer.pause(); setIsPlaying(false); }
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
       setEditAudioUri(null);
     } catch (err) {
       console.error('Failed to start recording', err);
@@ -115,37 +115,28 @@ export default function DashboardScreen() {
   }
 
   async function stopEditRecording() {
-    if (!editRecording) return;
-    await editRecording.stopAndUnloadAsync();
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-    const uri = editRecording.getURI();
+    if (!audioRecorder.isRecording) return;
+    audioRecorder.stopRecording();
+    const uri = audioRecorder.uri;
     setEditAudioUri(uri);
-    setEditRecording(null);
   }
 
+  const editAudioPlayer = useAudioPlayer(editAudioUri);
+
   async function playEditAudio() {
-    if (!editAudioUri) return;
-    if (sound) {
-      if (isPlaying) { await sound.pauseAsync(); setIsPlaying(false); }
-      else { await sound.playAsync(); setIsPlaying(true); }
-      return;
-    }
-    try {
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-      const { sound: newSound } = await Audio.Sound.createAsync({ uri: editAudioUri }, { shouldPlay: true });
-      setSound(newSound);
+    if (!editAudioUri || !editAudioPlayer) return;
+    
+    if (editAudioPlayer.playing) {
+      editAudioPlayer.pause();
+      setIsPlaying(false);
+    } else {
+      editAudioPlayer.play();
       setIsPlaying(true);
-      newSound.setOnPlaybackStatusUpdate((status) => {
-        if (status.didJustFinish) { setIsPlaying(false); newSound.setPositionAsync(0); }
-      });
-    } catch (error) {
-      console.error('Error playing audio', error);
-      alert('Could not play audio.');
     }
   }
 
   function deleteEditAudio() {
-    if (sound) { sound.unloadAsync(); setSound(null); setIsPlaying(false); }
+    if (editAudioPlayer) { editAudioPlayer.pause(); setIsPlaying(false); }
     setEditAudioUri(null);
   }
 
@@ -153,12 +144,10 @@ export default function DashboardScreen() {
     let finalAudioUri = editAudioUri;
     
     // Auto-stop recording if the user hits "Save" while still recording
-    if (editRecording) {
-      await editRecording.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-      finalAudioUri = editRecording.getURI();
+    if (audioRecorder.isRecording) {
+      audioRecorder.stopRecording();
+      finalAudioUri = audioRecorder.uri;
       setEditAudioUri(finalAudioUri);
-      setEditRecording(null);
     }
 
     const newRate = parseFloat(editRate) || 0;
@@ -239,37 +228,14 @@ export default function DashboardScreen() {
   };
 
   async function togglePlayAudio(audioUri) {
-    if (!audioUri) return;
+    if (!audioUri || !audioPlayer) return;
 
-    if (sound) {
-      if (isPlaying) {
-        await sound.pauseAsync();
-        setIsPlaying(false);
-      } else {
-        await sound.playAsync();
-        setIsPlaying(true);
-      }
-      return;
-    }
-
-    try {
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: audioUri },
-        { shouldPlay: true }
-      );
-      setSound(newSound);
+    if (audioPlayer.playing) {
+      audioPlayer.pause();
+      setIsPlaying(false);
+    } else {
+      audioPlayer.play();
       setIsPlaying(true);
-
-      newSound.setOnPlaybackStatusUpdate((status) => {
-        if (status.didJustFinish) {
-          setIsPlaying(false);
-          newSound.setPositionAsync(0);
-        }
-      });
-    } catch (error) {
-      console.error("Error playing audio", error);
-      alert('Could not play audio. The file might have been moved or deleted from your device folder.');
     }
   }
 
@@ -513,24 +479,24 @@ export default function DashboardScreen() {
                 {isEditing ? (
                   <View style={styles.audioEditSection}>
                     <Text style={styles.descLabel}>Voice Note</Text>
-                    {!editAudioUri && !editRecording && (
+                    {!editAudioUri && !audioRecorder.isRecording && (
                       <TouchableOpacity style={styles.recordEditBtn} onPress={startEditRecording}>
                         <Text style={styles.recordEditBtnIcon}>⏺️</Text>
                         <Text style={styles.recordEditBtnText}>Record Voice Note</Text>
                       </TouchableOpacity>
                     )}
-                    {editRecording && (
+                    {audioRecorder.isRecording && (
                       <TouchableOpacity style={[styles.recordEditBtn, styles.recordingActiveBtn]} onPress={stopEditRecording}>
                         <Text style={styles.recordEditBtnIcon}>⏹️</Text>
                         <Text style={styles.recordEditBtnText}>Stop Recording</Text>
                       </TouchableOpacity>
                     )}
-                    {editAudioUri && !editRecording && (
+                    {editAudioUri && !audioRecorder.isRecording && (
                       <View style={styles.audioEditPlayer}>
                         <Text style={styles.audioEditLabel}>🎤 Voice Note Ready</Text>
                         <View style={styles.audioEditControls}>
                           <TouchableOpacity style={styles.audioEditPlayBtn} onPress={playEditAudio}>
-                            <Text style={styles.audioEditPlayBtnText}>{isPlaying ? '⏸ Pause' : '▶ Play'}</Text>
+                            <Text style={styles.audioEditPlayBtnText}>{editAudioPlayer?.playing ? '⏸ Pause' : '▶ Play'}</Text>
                           </TouchableOpacity>
                           <TouchableOpacity style={styles.audioEditReplaceBtn} onPress={() => { deleteEditAudio(); startEditRecording(); }}>
                             <Text style={styles.audioEditReplaceBtnText}>🔄 Replace</Text>

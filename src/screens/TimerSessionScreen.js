@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, TextInput, Platform, ScrollView, Pressable } from 'react-native';
-import { Audio } from 'expo-av';
+import { useAudioPlayer, useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync } from 'expo-audio';
 import * as FileSystem from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -18,12 +18,11 @@ export default function TimerSessionScreen({ route, navigation }) {
   const [description, setDescription] = useState('');
   
   // Audio Recording State
-  const [recording, setRecording] = useState(null);
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [audioUri, setAudioUri] = useState(null);
-  const [permissionResponse, requestPermission] = Audio.usePermissions();
 
   // Audio Playback State
-  const [sound, setSound] = useState(null);
+  const audioPlayer = useAudioPlayer(audioUri);
   const [isPlaying, setIsPlaying] = useState(false);
 
   // Rate State
@@ -78,12 +77,12 @@ export default function TimerSessionScreen({ route, navigation }) {
 
   // Clean up sound on unmount
   useEffect(() => {
-    return sound
+    return audioPlayer
       ? () => {
-          sound.unloadAsync();
+          audioPlayer.remove();
         }
       : undefined;
-  }, [sound]);
+  }, [audioPlayer]);
 
   // Handle starting the timer
   const handleStart = () => {
@@ -135,18 +134,20 @@ export default function TimerSessionScreen({ route, navigation }) {
   // --- AUDIO LOGIC ---
   async function startRecording() {
     try {
-      if (permissionResponse?.status !== 'granted') await requestPermission();
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        alert('Microphone permission is required to record voice notes.');
+        return;
+      }
       
       // Stop any playback before recording
-      if (sound) {
-        await sound.unloadAsync();
-        setSound(null);
+      if (audioPlayer) {
+        audioPlayer.pause();
         setIsPlaying(false);
       }
 
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      setRecording(recording);
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
       setAudioUri(null);
     } catch (err) {
       console.error('Failed to start recording', err);
@@ -154,51 +155,27 @@ export default function TimerSessionScreen({ route, navigation }) {
   }
 
   async function stopRecording() {
-    setRecording(undefined);
-    await recording.stopAndUnloadAsync();
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-    const uri = recording.getURI();
+    if (!audioRecorder.isRecording) return;
+    audioRecorder.stopRecording();
+    const uri = audioRecorder.uri;
     setAudioUri(uri);
   }
 
   async function playAudio() {
-    if (!audioUri) return;
+    if (!audioUri || !audioPlayer) return;
 
-    if (sound) {
-      if (isPlaying) {
-        await sound.pauseAsync();
-        setIsPlaying(false);
-      } else {
-        await sound.playAsync();
-        setIsPlaying(true);
-      }
-      return;
-    }
-
-    try {
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: audioUri },
-        { shouldPlay: true }
-      );
-      setSound(newSound);
+    if (audioPlayer.playing) {
+      audioPlayer.pause();
+      setIsPlaying(false);
+    } else {
+      audioPlayer.play();
       setIsPlaying(true);
-
-      newSound.setOnPlaybackStatusUpdate((status) => {
-        if (status.didJustFinish) {
-          setIsPlaying(false);
-          newSound.setPositionAsync(0);
-        }
-      });
-    } catch (error) {
-      console.error("Error playing audio", error);
     }
   }
 
   async function deleteAudio() {
-    if (sound) {
-      await sound.unloadAsync();
-      setSound(null);
+    if (audioPlayer) {
+      audioPlayer.pause();
       setIsPlaying(false);
     }
     setAudioUri(null);
@@ -299,10 +276,9 @@ export default function TimerSessionScreen({ route, navigation }) {
     
     await addSession(entry);
 
-    if (sound) await sound.unloadAsync();
-    setSound(null);
+    if (audioPlayer) audioPlayer.pause();
     setIsPlaying(false);
-    setRecording(null);
+    if (audioRecorder.isRecording) audioRecorder.stopRecording();
     setAudioUri(null);
     setDescription('');
     setHourlyRate('');
@@ -436,21 +412,21 @@ export default function TimerSessionScreen({ route, navigation }) {
               />
 
               {/* AUDIO RECORDER / PLAYER VIEW */}
-              {!audioUri && !recording && (
+              {!audioUri && !audioRecorder.isRecording && (
                 <TouchableOpacity style={styles.recordButton} onPress={startRecording}>
                   <Text style={styles.recordButtonIcon}>⏺️</Text>
                   <Text style={styles.recordButtonText}>Record Voice Note</Text>
                 </TouchableOpacity>
               )}
 
-              {recording && (
+              {audioRecorder.isRecording && (
                 <TouchableOpacity style={[styles.recordButton, styles.recordingActive]} onPress={stopRecording}>
                   <Text style={styles.recordButtonIcon}>⏹️</Text>
                   <Text style={styles.recordButtonText}>Stop Recording</Text>
                 </TouchableOpacity>
               )}
 
-              {audioUri && !recording && (
+              {audioUri && !audioRecorder.isRecording && (
                 <View style={styles.audioPlayerContainer}>
                   <View style={styles.audioInfo}>
                     <Text style={styles.audioTagText}>🎤 Audio Note Attached</Text>

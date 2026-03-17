@@ -41,11 +41,13 @@
     "plugins": [
       "expo-contacts",
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": "Allow WorkTime Tracker to access your microphone for voice notes."
         }
-      ]
+      ],
+      "expo-font",
+      "expo-asset"
     ],
     "extra": {
       "eas": {
