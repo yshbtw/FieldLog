@@ -4,7 +4,6 @@ const STORAGE_KEYS = {
   SESSIONS: '@worktime_sessions',
   SETTINGS: '@worktime_settings',
   RATES: '@worktime_rates',
-  SAF_DIR: '@worktime_saf_dir',
 };
 
 /**
@@ -79,31 +78,5 @@ export async function loadRates() {
   }
 }
 
-/**
- * Save SAF Directory URI to local storage.
- */
-export async function saveDirectoryUri(uri) {
-  try {
-    if (!uri) {
-      await AsyncStorage.removeItem(STORAGE_KEYS.SAF_DIR);
-    } else {
-      await AsyncStorage.setItem(STORAGE_KEYS.SAF_DIR, uri);
-    }
-  } catch (error) {
-    console.error('Error saving directory URI:', error);
-  }
-}
-
-/**
- * Load SAF Directory URI from local storage.
- */
-export async function loadDirectoryUri() {
-  try {
-    return await AsyncStorage.getItem(STORAGE_KEYS.SAF_DIR);
-  } catch (error) {
-    console.error('Error loading directory URI:', error);
-    return null;
-  }
-}
 
 export { STORAGE_KEYS };

@@ -28,16 +28,6 @@ export default function TimerScreen({ navigation }) {
       const { status } = await Contacts.requestPermissionsAsync();
 
       if (status !== 'granted') {
-        if (Platform.OS === 'web') {
-          // Fallback to mock data on web for testing
-          setContacts([
-            { id: '1', name: 'Alice Smith', phoneNumbers: [{ number: '555-0101' }] },
-            { id: '2', name: 'Bob Johnson', phoneNumbers: [{ number: '555-0102' }] },
-            { id: '3', name: 'Charlie Davis', phoneNumbers: [{ number: '555-0103' }] },
-          ]);
-          setLoading(false);
-          return;
-        }
         setPermissionDenied(true);
         setLoading(false);
         return;

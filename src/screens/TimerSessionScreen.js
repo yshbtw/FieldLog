@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, TextInput, Platform, ScrollView, Pressable } from 'react-native';
-import { useAudioPlayer, useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync } from 'expo-audio';
+import { useAudioPlayer, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule } from 'expo-audio';
 import * as FileSystem from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withRepeat, withTiming, withSequence, Easing } from 'react-native-reanimated';
 import { useWorkSession } from '../context/WorkSessionContext';
 import { formatDuration, formatCurrency } from '../utils/formatTime';
-import { loadDirectoryUri, saveDirectoryUri } from '../services/storageService';
 
 export default function TimerSessionScreen({ route, navigation }) {
   const { contactName, contactId } = route.params;
@@ -19,7 +18,9 @@ export default function TimerSessionScreen({ route, navigation }) {
   
   // Audio Recording State
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(audioRecorder);
   const [audioUri, setAudioUri] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Audio Playback State
   const audioPlayer = useAudioPlayer(audioUri);
@@ -75,14 +76,7 @@ export default function TimerSessionScreen({ route, navigation }) {
   const animatedStopStyle = useAnimatedStyle(() => ({ transform: [{ scale: stopScale.value }] }));
   const animatedTimerStyle = useAnimatedStyle(() => ({ transform: [{ scale: timerScale.value }] }));
 
-  // Clean up sound on unmount
-  useEffect(() => {
-    return audioPlayer
-      ? () => {
-          audioPlayer.remove();
-        }
-      : undefined;
-  }, [audioPlayer]);
+  // useAudioPlayer auto-manages lifecycle; no manual cleanup needed.
 
   // Handle starting the timer
   const handleStart = () => {
@@ -134,7 +128,7 @@ export default function TimerSessionScreen({ route, navigation }) {
   // --- AUDIO LOGIC ---
   async function startRecording() {
     try {
-      const perm = await requestRecordingPermissionsAsync();
+      const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
         alert('Microphone permission is required to record voice notes.');
         return;
@@ -142,7 +136,7 @@ export default function TimerSessionScreen({ route, navigation }) {
       
       // Stop any playback before recording
       if (audioPlayer) {
-        audioPlayer.pause();
+        try { audioPlayer.pause(); } catch (e) {}
         setIsPlaying(false);
       }
 
@@ -156,7 +150,7 @@ export default function TimerSessionScreen({ route, navigation }) {
 
   async function stopRecording() {
     if (!audioRecorder.isRecording) return;
-    audioRecorder.stopRecording();
+    await audioRecorder.stop();
     const uri = audioRecorder.uri;
     setAudioUri(uri);
   }
@@ -164,18 +158,23 @@ export default function TimerSessionScreen({ route, navigation }) {
   async function playAudio() {
     if (!audioUri || !audioPlayer) return;
 
-    if (audioPlayer.playing) {
-      audioPlayer.pause();
+    try {
+      if (audioPlayer.playing) {
+        audioPlayer.pause();
+        setIsPlaying(false);
+      } else {
+        audioPlayer.play();
+        setIsPlaying(true);
+      }
+    } catch (e) {
+      console.warn('Audio player unavailable', e);
       setIsPlaying(false);
-    } else {
-      audioPlayer.play();
-      setIsPlaying(true);
     }
   }
 
   async function deleteAudio() {
     if (audioPlayer) {
-      audioPlayer.pause();
+      try { audioPlayer.pause(); } catch (e) {}
       setIsPlaying(false);
     }
     setAudioUri(null);
@@ -183,8 +182,12 @@ export default function TimerSessionScreen({ route, navigation }) {
 
   // --- SAVE SESSION & SAF DIRECTORY LOGIC ---
   const handleSaveSession = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+
     if (computedDuration <= 0) {
       alert("Duration must be greater than 0. Check your timer.");
+      setIsSaving(false);
       return;
     }
 
@@ -197,42 +200,23 @@ export default function TimerSessionScreen({ route, navigation }) {
 
     let finalAudioUri = audioUri;
 
-    // Local Folder Saving (SAF on Android)
-    if (finalAudioUri && Platform.OS === 'android') {
+    // Persistent Internal Storage
+    if (finalAudioUri) {
       try {
-        let dirUri = await loadDirectoryUri();
-        if (!dirUri) {
-          alert('First time saving audio! Please pick a device folder to securely save all your WorkTime data.');
-          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-          if (permissions.granted) {
-            dirUri = permissions.directoryUri;
-            await saveDirectoryUri(dirUri);
-          }
-        }
-
-        if (dirUri) {
-          // move the cache audio to the persistent SAF folder
-          const safeContactName = contactName.replace(/[^a-zA-Z0-9]/g, '_');
-          const fileName = `WorkTime_${safeContactName}_${Date.now()}.m4a`;
-          
-          // Create the file in the selected directory
-          const finalUri = await FileSystem.StorageAccessFramework.createFileAsync(
-            dirUri,
-            fileName,
-            'audio/m4a'
-          );
-          
-          // Read from cache and write to SAF
-          const base64Audio = await FileSystem.readAsStringAsync(finalAudioUri, { encoding: FileSystem.EncodingType.Base64 });
-          await FileSystem.writeAsStringAsync(finalUri, base64Audio, { encoding: FileSystem.EncodingType.Base64 });
-          
-          finalAudioUri = finalUri;
-        }
+        const safeContactName = contactName.replace(/[^a-zA-Z0-9]/g, '_');
+        const fileName = `WorkTime_${safeContactName}_${Date.now()}.m4a`;
+        const persistentUri = FileSystem.documentDirectory + fileName;
+        
+        // Move from temporary cache to persistent document folder
+        await FileSystem.moveAsync({
+          from: finalAudioUri,
+          to: persistentUri
+        });
+        
+        finalAudioUri = persistentUri;
       } catch (err) {
-        console.error("Failed to save audio to SAF:", err);
-        alert('The previously selected storage folder is no longer writable (or was moved/deleted). Please select a new folder next time.');
-        await saveDirectoryUri(null); // Clear the invalid directory
-        // Continue fallback to cache
+        console.error("Failed to save audio to internal storage:", err);
+        // It remains as the cache URI if moving fails for some reason
       }
     }
 
@@ -240,6 +224,7 @@ export default function TimerSessionScreen({ route, navigation }) {
 
     if (paidStatus === 'partial' && extraPaidAmount > earnings) {
       alert(`Overpayment Alert: Partial amount (${formatCurrency(extraPaidAmount)}) cannot be greater than total earnings (${formatCurrency(earnings)}).`);
+      setIsSaving(false);
       return;
     }
 
@@ -276,9 +261,9 @@ export default function TimerSessionScreen({ route, navigation }) {
     
     await addSession(entry);
 
-    if (audioPlayer) audioPlayer.pause();
+    if (audioPlayer) try { audioPlayer.pause(); } catch (e) {}
     setIsPlaying(false);
-    if (audioRecorder.isRecording) audioRecorder.stopRecording();
+    if (audioRecorder.isRecording) await audioRecorder.stop();
     setAudioUri(null);
     setDescription('');
     setHourlyRate('');
@@ -412,21 +397,21 @@ export default function TimerSessionScreen({ route, navigation }) {
               />
 
               {/* AUDIO RECORDER / PLAYER VIEW */}
-              {!audioUri && !audioRecorder.isRecording && (
+              {!audioUri && !recorderState.isRecording && (
                 <TouchableOpacity style={styles.recordButton} onPress={startRecording}>
                   <Text style={styles.recordButtonIcon}>⏺️</Text>
                   <Text style={styles.recordButtonText}>Record Voice Note</Text>
                 </TouchableOpacity>
               )}
 
-              {audioRecorder.isRecording && (
+              {recorderState.isRecording && (
                 <TouchableOpacity style={[styles.recordButton, styles.recordingActive]} onPress={stopRecording}>
                   <Text style={styles.recordButtonIcon}>⏹️</Text>
                   <Text style={styles.recordButtonText}>Stop Recording</Text>
                 </TouchableOpacity>
               )}
 
-              {audioUri && !audioRecorder.isRecording && (
+              {audioUri && !recorderState.isRecording && (
                 <View style={styles.audioPlayerContainer}>
                   <View style={styles.audioInfo}>
                     <Text style={styles.audioTagText}>🎤 Audio Note Attached</Text>
@@ -492,9 +477,9 @@ export default function TimerSessionScreen({ route, navigation }) {
                 </View>
               )}
 
-              <TouchableOpacity style={styles.saveActionBtn} onPress={handleSaveSession}>
+              <TouchableOpacity style={[styles.saveActionBtn, isSaving && { opacity: 0.5 }]} onPress={handleSaveSession} disabled={isSaving}>
                 <LinearGradient colors={['#38BDF8', '#0284C7']} style={StyleSheet.absoluteFillObject} borderRadius={16} />
-                <Text style={styles.saveActionBtnText}>Save Session</Text>
+                <Text style={styles.saveActionBtnText}>{isSaving ? 'Saving...' : 'Save Session'}</Text>
               </TouchableOpacity>
 
             </ScrollView>

@@ -6,7 +6,6 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { formatCurrency } from '../utils/formatTime';
-import { saveDirectoryUri } from '../services/storageService';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -214,23 +213,6 @@ export default function AnalyticsScreen() {
     }
   };
 
-  const handleResetFolder = () => {
-    Alert.alert(
-      "Reset Storage Folder",
-      "This will make the app ask you to select a new folder for your voice notes the next time you save a session.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Reset", 
-          style: "destructive", 
-          onPress: async () => {
-            await saveDirectoryUri(null);
-            Alert.alert("Success", "Audio storage folder reset.");
-          }
-        }
-      ]
-    );
-  };
 
   return (
     <View style={{flex: 1, backgroundColor: '#F2F2F7'}}>
@@ -298,20 +280,7 @@ export default function AnalyticsScreen() {
           )}
         </View>
 
-        {/* Settings */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Settings</Text>
-          <TouchableOpacity style={styles.resetButton} onPress={handleResetFolder}>
-            <View style={styles.resetButtonContent}>
-              <Text style={styles.resetButtonIcon}>📁</Text>
-              <View>
-                <Text style={styles.resetButtonTitle}>Reset Audio Save Folder</Text>
-                <Text style={styles.resetButtonDesc}>Choose a new folder for voice notes</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-        </View>
-        
+
         <View style={styles.bottomPadding} />
       </ScrollView>
 
@@ -494,15 +463,6 @@ const styles = StyleSheet.create({
   },
   emptyText: { color: '#6B7280', fontSize: 16, fontWeight: '500' },
 
-  // Settings
-  resetButton: {
-    backgroundColor: '#FFFFFF', borderRadius: 20, padding: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
-  },
-  resetButtonContent: { flexDirection: 'row', alignItems: 'center' },
-  resetButtonIcon: { fontSize: 24, marginRight: 16 },
-  resetButtonTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
-  resetButtonDesc: { fontSize: 13, color: '#6B7280', marginTop: 2 },
   bottomPadding: { height: 120 },
 
   // ===== DETAIL MODAL =====

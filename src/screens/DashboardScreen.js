@@ -4,11 +4,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { useAudioPlayer, useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync } from 'expo-audio';
+import { useAudioPlayer, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule } from 'expo-audio';
 import * as FileSystem from 'expo-file-system';
 import { useWorkSession } from '../context/WorkSessionContext';
 import { formatDuration, formatDate, formatTime, formatCurrency } from '../utils/formatTime';
-import { loadDirectoryUri, saveDirectoryUri } from '../services/storageService';
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
@@ -28,23 +27,17 @@ export default function DashboardScreen() {
 
   // Edit Mode Audio State
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(audioRecorder);
   const [editAudioUri, setEditAudioUri] = useState(null);
 
-  // Clean up sound on unmount or when modal closes
+  // Reset state when modal closes (useAudioPlayer auto-manages player lifecycle)
   useEffect(() => {
-    if (!selectedSession && audioPlayer) {
-      audioPlayer.remove();
-      setIsPlaying(false);
-    }
     if (!selectedSession) {
+      setIsPlaying(false);
       setIsEditing(false);
       setEditAudioUri(null);
     }
   }, [selectedSession]);
-
-  useEffect(() => {
-    return audioPlayer ? () => { audioPlayer.remove(); } : undefined;
-  }, [audioPlayer]);
 
   // Sort sessions recent first
   const recentSessions = [...sessions].sort(
@@ -52,15 +45,6 @@ export default function DashboardScreen() {
   );
 
   const confirmDelete = (id) => {
-    if (Platform.OS === 'web') {
-      const confirmed = window.confirm("Are you sure you want to delete this work session? This will not delete the audio from your device.");
-      if (confirmed) {
-        deleteSession(id);
-        setSelectedSession(null);
-      }
-      return;
-    }
-
     Alert.alert(
       "Delete Session",
       "Are you sure you want to delete this work session? This will not delete the audio from your device.",
@@ -85,13 +69,13 @@ export default function DashboardScreen() {
     setEditPaidAmount(String(selectedSession.paidAmount || ''));
     setEditAudioUri(selectedSession.audioUri || null);
     // Clean up any existing playback
-    if (audioPlayer) { audioPlayer.pause(); setIsPlaying(false); }
+    if (audioPlayer) { try { audioPlayer.pause(); } catch (e) {} setIsPlaying(false); }
     setIsEditing(true);
   };
 
   const cancelEditing = () => {
-    if (audioPlayer) { audioPlayer.pause(); setIsPlaying(false); }
-    if (audioRecorder.isRecording) { audioRecorder.stopRecording(); }
+    if (audioPlayer) { try { audioPlayer.pause(); } catch (e) {} setIsPlaying(false); }
+    if (audioRecorder.isRecording) { audioRecorder.stop(); }
     setEditAudioUri(selectedSession.audioUri || null);
     setIsEditing(false);
   };
@@ -99,12 +83,12 @@ export default function DashboardScreen() {
   // --- EDIT MODE AUDIO FUNCTIONS ---
   async function startEditRecording() {
     try {
-      const perm = await requestRecordingPermissionsAsync();
+      const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
         alert('Microphone permission is required to record voice notes.');
         return;
       }
-      if (audioPlayer) { audioPlayer.pause(); setIsPlaying(false); }
+      if (audioPlayer) { try { audioPlayer.pause(); } catch (e) {} setIsPlaying(false); }
       await audioRecorder.prepareToRecordAsync();
       audioRecorder.record();
       setEditAudioUri(null);
@@ -116,7 +100,7 @@ export default function DashboardScreen() {
 
   async function stopEditRecording() {
     if (!audioRecorder.isRecording) return;
-    audioRecorder.stopRecording();
+    await audioRecorder.stop();
     const uri = audioRecorder.uri;
     setEditAudioUri(uri);
   }
@@ -126,17 +110,22 @@ export default function DashboardScreen() {
   async function playEditAudio() {
     if (!editAudioUri || !editAudioPlayer) return;
     
-    if (editAudioPlayer.playing) {
-      editAudioPlayer.pause();
+    try {
+      if (editAudioPlayer.playing) {
+        editAudioPlayer.pause();
+        setIsPlaying(false);
+      } else {
+        editAudioPlayer.play();
+        setIsPlaying(true);
+      }
+    } catch (e) {
+      console.warn('Edit audio player unavailable', e);
       setIsPlaying(false);
-    } else {
-      editAudioPlayer.play();
-      setIsPlaying(true);
     }
   }
 
   function deleteEditAudio() {
-    if (editAudioPlayer) { editAudioPlayer.pause(); setIsPlaying(false); }
+    if (editAudioPlayer) { try { editAudioPlayer.pause(); } catch (e) {} setIsPlaying(false); }
     setEditAudioUri(null);
   }
 
@@ -145,7 +134,7 @@ export default function DashboardScreen() {
     
     // Auto-stop recording if the user hits "Save" while still recording
     if (audioRecorder.isRecording) {
-      audioRecorder.stopRecording();
+      await audioRecorder.stop();
       finalAudioUri = audioRecorder.uri;
       setEditAudioUri(finalAudioUri);
     }
@@ -154,29 +143,32 @@ export default function DashboardScreen() {
     const hours = selectedSession.duration / 3600;
     const newEarnings = newRate * hours;
 
-    // If a new audio was recorded, persist it via SAF on Android
-    if (finalAudioUri && finalAudioUri !== selectedSession.audioUri && Platform.OS === 'android') {
+    // If a new audio was recorded, move it to persistent internal storage
+    if (finalAudioUri && finalAudioUri !== selectedSession.audioUri) {
       try {
-        let dirUri = await loadDirectoryUri();
-        if (!dirUri) {
-          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-          if (permissions.granted) {
-            dirUri = permissions.directoryUri;
-            await saveDirectoryUri(dirUri);
-          }
-        }
-        if (dirUri) {
-          const safeName = (selectedSession.contactName || 'unknown').replace(/[^a-zA-Z0-9]/g, '_');
-          const fileName = `WorkTime_${safeName}_edit_${Date.now()}.m4a`;
-          const newUri = await FileSystem.StorageAccessFramework.createFileAsync(dirUri, fileName, 'audio/m4a');
-          const base64Audio = await FileSystem.readAsStringAsync(finalAudioUri, { encoding: FileSystem.EncodingType.Base64 });
-          await FileSystem.writeAsStringAsync(newUri, base64Audio, { encoding: FileSystem.EncodingType.Base64 });
-          finalAudioUri = newUri;
+        const safeName = (selectedSession.contactName || 'unknown').replace(/[^a-zA-Z0-9]/g, '_');
+        const fileName = `WorkTime_${safeName}_edit_${Date.now()}.m4a`;
+        const persistentUri = FileSystem.documentDirectory + fileName;
+        
+        await FileSystem.moveAsync({
+          from: finalAudioUri,
+          to: persistentUri
+        });
+        finalAudioUri = persistentUri;
+
+        // Clean up the old audio file to save space if it existed
+        if (selectedSession.audioUri) {
+          await FileSystem.deleteAsync(selectedSession.audioUri, { idempotent: true });
         }
       } catch (err) {
-        console.error('Failed to save edited audio to SAF:', err);
-        alert('The previously selected storage folder is no longer writable. Please select a new folder next time you save.');
-        await saveDirectoryUri(null); // Clear the invalid directory
+        console.error('Failed to save edited audio internally:', err);
+      }
+    } else if (finalAudioUri === null && selectedSession.audioUri) {
+      // If the user fully deleted the audio in edit mode, delete from phone
+      try {
+        await FileSystem.deleteAsync(selectedSession.audioUri, { idempotent: true });
+      } catch (e) {
+        console.log("Could not delete old audio file", e);
       }
     }
 
@@ -231,10 +223,10 @@ export default function DashboardScreen() {
     if (!audioUri || !audioPlayer) return;
 
     if (audioPlayer.playing) {
-      audioPlayer.pause();
+      try { audioPlayer.pause(); } catch (e) {}
       setIsPlaying(false);
     } else {
-      audioPlayer.play();
+      try { audioPlayer.play(); } catch (e) {}
       setIsPlaying(true);
     }
   }
@@ -479,19 +471,19 @@ export default function DashboardScreen() {
                 {isEditing ? (
                   <View style={styles.audioEditSection}>
                     <Text style={styles.descLabel}>Voice Note</Text>
-                    {!editAudioUri && !audioRecorder.isRecording && (
+                    {!editAudioUri && !recorderState.isRecording && (
                       <TouchableOpacity style={styles.recordEditBtn} onPress={startEditRecording}>
                         <Text style={styles.recordEditBtnIcon}>⏺️</Text>
                         <Text style={styles.recordEditBtnText}>Record Voice Note</Text>
                       </TouchableOpacity>
                     )}
-                    {audioRecorder.isRecording && (
+                    {recorderState.isRecording && (
                       <TouchableOpacity style={[styles.recordEditBtn, styles.recordingActiveBtn]} onPress={stopEditRecording}>
                         <Text style={styles.recordEditBtnIcon}>⏹️</Text>
                         <Text style={styles.recordEditBtnText}>Stop Recording</Text>
                       </TouchableOpacity>
                     )}
-                    {editAudioUri && !audioRecorder.isRecording && (
+                    {editAudioUri && !recorderState.isRecording && (
                       <View style={styles.audioEditPlayer}>
                         <Text style={styles.audioEditLabel}>🎤 Voice Note Ready</Text>
                         <View style={styles.audioEditControls}>
