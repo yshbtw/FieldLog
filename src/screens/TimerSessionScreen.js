@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, TextInput, Platform, ScrollView, Pressable } from 'react-native';
 import { useAudioPlayer, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule } from 'expo-audio';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withRepeat, withTiming, withSequence, Easing } from 'react-native-reanimated';

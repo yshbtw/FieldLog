@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useAudioPlayer, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule } from 'expo-audio';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useWorkSession } from '../context/WorkSessionContext';
 import { formatDuration, formatDate, formatTime, formatCurrency } from '../utils/formatTime';
 
