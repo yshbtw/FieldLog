@@ -6,8 +6,10 @@ import { BlurView } from 'expo-blur';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useAudioPlayer, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
+import { Ionicons } from '@expo/vector-icons';
 import { useWorkSession } from '../context/WorkSessionContext';
 import { formatDuration, formatDate, formatTime, formatCurrency } from '../utils/formatTime';
+import SettingsModal from '../components/SettingsModal';
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
@@ -20,6 +22,7 @@ export default function DashboardScreen() {
   const [editRate, setEditRate] = useState('');
   const [editPaidStatus, setEditPaidStatus] = useState('unpaid');
   const [editPaidAmount, setEditPaidAmount] = useState('');
+  const [settingsVisible, setSettingsVisible] = useState(false);
 
   // Audio Playback State
   const audioPlayer = useAudioPlayer(selectedSession?.audioUri || null);
@@ -296,7 +299,12 @@ export default function DashboardScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <Text style={styles.title}>Dashboard</Text>
+        <View style={styles.headerTopRow}>
+          <Text style={styles.title}>Dashboard</Text>
+          <TouchableOpacity onPress={() => setSettingsVisible(true)}>
+            <Ionicons name="settings-outline" size={24} color="#111827" />
+          </TouchableOpacity>
+        </View>
         <Text style={styles.subtitle}>
           {sessions.length} session{sessions.length !== 1 ? 's' : ''} total
         </Text>
@@ -545,6 +553,10 @@ export default function DashboardScreen() {
         </BlurView>
       </Modal>
 
+      <SettingsModal 
+        visible={settingsVisible} 
+        onClose={() => setSettingsVisible(false)} 
+      />
     </View>
   );
 }
@@ -552,6 +564,7 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F7' },
   header: { paddingHorizontal: 24, paddingBottom: 8 },
+  headerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { fontSize: 32, fontWeight: '800', color: '#111827', marginBottom: 4 },
   subtitle: { fontSize: 15, color: '#6B7280', fontWeight: '500' },
   listContent: { paddingHorizontal: 24, paddingBottom: 100 }, // Extra padding for floating tab bar

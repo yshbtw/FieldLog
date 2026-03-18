@@ -5,7 +5,9 @@ import { useWorkSession } from '../context/WorkSessionContext';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
+import { Ionicons } from '@expo/vector-icons';
 import { formatCurrency } from '../utils/formatTime';
+import SettingsModal from '../components/SettingsModal';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -24,6 +26,7 @@ export default function AnalyticsScreen() {
 
   const [selectedContact, setSelectedContact] = useState(null);
   const [selectedSessionIds, setSelectedSessionIds] = useState(new Set());
+  const [settingsVisible, setSettingsVisible] = useState(false);
 
   const { weekData, totalWeeklyEarnings } = getWeeklyTotals();
   const monthlyEarnings = getMonthlyEarnings();
@@ -218,7 +221,12 @@ export default function AnalyticsScreen() {
     <View style={{flex: 1, backgroundColor: '#F2F2F7'}}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-          <Text style={styles.headerTitle}>Analytics</Text>
+          <View style={styles.headerTopRow}>
+            <Text style={styles.headerTitle}>Analytics</Text>
+            <TouchableOpacity onPress={() => setSettingsVisible(true)}>
+              <Ionicons name="settings-outline" size={24} color="#111827" />
+            </TouchableOpacity>
+          </View>
           <Text style={styles.headerSubtitle}>Your work insights and reports</Text>
         </View>
 
@@ -409,6 +417,10 @@ export default function AnalyticsScreen() {
         </View>
       </Modal>
 
+      <SettingsModal 
+        visible={settingsVisible} 
+        onClose={() => setSettingsVisible(false)} 
+      />
     </View>
   );
 }
@@ -416,6 +428,7 @@ export default function AnalyticsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F7' },
   header: { paddingHorizontal: 24, paddingBottom: 8 },
+  headerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerTitle: { fontSize: 32, fontWeight: '800', color: '#111827', marginBottom: 4 },
   headerSubtitle: { fontSize: 15, color: '#6B7280', fontWeight: '500' },
 

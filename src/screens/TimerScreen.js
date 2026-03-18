@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Contacts from 'expo-contacts';
+import { Ionicons } from '@expo/vector-icons';
+import SettingsModal from '../components/SettingsModal';
 
 export default function TimerScreen({ navigation }) {
   const [contacts, setContacts] = useState([]);
@@ -18,6 +20,7 @@ export default function TimerScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const insets = useSafeAreaInsets();
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
 
   useEffect(() => {
     loadContacts();
@@ -107,7 +110,12 @@ export default function TimerScreen({ navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <Text style={styles.headerTitle}>Contacts</Text>
+        <View style={styles.headerTopRow}>
+          <Text style={styles.headerTitle}>Contacts</Text>
+          <TouchableOpacity onPress={() => setSettingsVisible(true)}>
+            <Ionicons name="settings-outline" size={24} color="#111827" />
+          </TouchableOpacity>
+        </View>
         <Text style={styles.headerSubtitle}>Select a contact to start tracking</Text>
       </View>
 
@@ -167,6 +175,10 @@ export default function TimerScreen({ navigation }) {
           </TouchableOpacity>
         )}
       />
+      <SettingsModal 
+        visible={settingsVisible} 
+        onClose={() => setSettingsVisible(false)} 
+      />
     </View>
   );
 }
@@ -179,6 +191,11 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 24,
     paddingBottom: 8,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 32,
