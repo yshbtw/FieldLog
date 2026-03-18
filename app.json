@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "WorkTime Tracker",
-    "slug": "worktime-tracker",
+    "name": "FieldLog",
+    "slug": "FieldLog",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
