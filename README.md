@@ -22,6 +22,7 @@ The app helps farmers, contractors, and machine operators efficiently **record m
 - View daily work statistics
 - Track total hours worked
 - Quick overview of productivity
+- Save & Export PDF easily with simple one click by selecting which entries you want
 
 ## ▶ Work Session Logging
 - Start a work session when work begins
