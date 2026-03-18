@@ -460,7 +460,7 @@ export default function TimerSessionScreen({ route, navigation }) {
                   );
                 })}
               </View>
-              {paidStatus === 'partial' && (
+              {paidStatus !== 'unpaid' && (
                 <View style={styles.partialAmountRow}>
                   <Text style={styles.partialAmountLabel}>Amount Received (₹)</Text>
                   <TextInput
@@ -471,8 +471,8 @@ export default function TimerSessionScreen({ route, navigation }) {
                     placeholder="0"
                     placeholderTextColor="#9CA3AF"
                   />
-                  {parseFloat(paidAmount) > previewEarnings && (
-                    <Text style={styles.errorText}>Please enter correct amount or mark as Paid</Text>
+                  {parseFloat(paidAmount) > previewEarnings + 0.01 && (
+                    <Text style={styles.errorText}>Paid amount exceeds total earnings</Text>
                   )}
                 </View>
               )}

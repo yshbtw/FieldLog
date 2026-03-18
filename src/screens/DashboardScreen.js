@@ -66,7 +66,7 @@ export default function DashboardScreen() {
     setEditDescription(selectedSession.description || '');
     setEditRate(String(selectedSession.hourlyRate || 0));
     setEditPaidStatus(selectedSession.paidStatus || 'unpaid');
-    setEditPaidAmount(String(selectedSession.paidAmount || ''));
+    setEditPaidAmount(selectedSession.paidAmount !== undefined ? String(selectedSession.paidAmount) : '');
     setEditAudioUri(selectedSession.audioUri || null);
     // Clean up any existing playback
     if (audioPlayer) { try { audioPlayer.pause(); } catch (e) {} setIsPlaying(false); }
@@ -174,20 +174,20 @@ export default function DashboardScreen() {
 
     const extraPaidAmount = parseFloat(editPaidAmount) || 0;
     
-    if (editPaidStatus === 'partial' && extraPaidAmount > newEarnings) {
-      Alert.alert(
-        "Overpayment Alert",
-        `Partial amount (${formatCurrency(extraPaidAmount)}) cannot be greater than total earnings (${formatCurrency(newEarnings)}).`,
-        [{ text: "OK" }]
-      );
-      return;
-    }
-
     let finalPaidStatus = editPaidStatus;
-    let finalPaidAmount = 0;
+    let finalPaidAmount = extraPaidAmount;
 
+    // If it was previously marked as paid, but the earnings increased, 
+    // and the user didn't manually change the status/amount to match the NEW earnings...
     if (editPaidStatus === 'paid') {
-      finalPaidAmount = newEarnings;
+      if (newEarnings > selectedSession.paidAmount && editPaidStatus === selectedSession.paidStatus && extraPaidAmount === selectedSession.paidAmount) {
+        // Earnings increased, but paid amount stayed the same -> it's now partial
+        finalPaidStatus = 'partial';
+        finalPaidAmount = selectedSession.paidAmount;
+      } else {
+        // User explicitly kept it as 'paid' or updated amount, so we assume they mean FULLY paid now
+        finalPaidAmount = newEarnings;
+      }
     } else if (editPaidStatus === 'partial') {
       if (Math.abs(extraPaidAmount - newEarnings) < 0.01 || extraPaidAmount > newEarnings) {
         // Automatically mark as paid if equal (or slightly above due to rounding)
@@ -386,22 +386,20 @@ export default function DashboardScreen() {
                         );
                       })}
                     </View>
-                    {editPaidStatus === 'partial' && (
-                      <View style={styles.partialAmountRow}>
-                        <Text style={styles.editFieldLabel}>Amount Received (₹)</Text>
-                        <TextInput
-                          style={styles.editInput}
-                          value={editPaidAmount}
-                          onChangeText={setEditPaidAmount}
-                          keyboardType="decimal-pad"
-                          placeholder="0"
-                          placeholderTextColor="#9CA3AF"
-                        />
-                        {parseFloat(editPaidAmount) > ((parseFloat(editRate) || 0) * (selectedSession.duration / 3600)) && (
-                          <Text style={styles.errorText}>Please enter correct amount or mark as Paid</Text>
-                        )}
-                      </View>
-                    )}
+                    <View style={styles.partialAmountRow}>
+                      <Text style={styles.editFieldLabel}>Amount Received (₹)</Text>
+                      <TextInput
+                        style={styles.editInput}
+                        value={editPaidAmount}
+                        onChangeText={setEditPaidAmount}
+                        keyboardType="decimal-pad"
+                        placeholder="0"
+                        placeholderTextColor="#9CA3AF"
+                      />
+                      {parseFloat(editPaidAmount) > ((parseFloat(editRate) || 0) * (selectedSession.duration / 3600)) + 0.01 && (
+                        <Text style={styles.errorText}>Paid amount exceeds total earnings</Text>
+                      )}
+                    </View>
                   </View>
                 ) : (
                   <View style={styles.infoRow}>
