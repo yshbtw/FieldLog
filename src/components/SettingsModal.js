@@ -56,6 +56,7 @@ export default function SettingsModal({ visible, onClose }) {
           </Pressable>
         </View>
       </Pressable>
+
     </Modal>
   );
 }
